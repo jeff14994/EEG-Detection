@@ -38,7 +38,7 @@ The system consists of two main components:
 
 1. Clone the repository:
 ```bash
-git clone <repository-url>
+git clone https://github.com/jeff14994/EEG-Detection.git
 cd eeg_app
 ```
 
@@ -62,9 +62,9 @@ cd backend
 
 2. Create a virtual environment and install dependencies:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
+python3.11 -m venv venv 
+source venv/bin/activate # On Windows: venv\Scripts\activate 
+pip3 install -r ./backend/requirements.txt
 ```
 
 3. Run the development server:
