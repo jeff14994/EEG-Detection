@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EEG Data Visualization</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            background-color: #282c34;
+            color: white;
+        }
+
+        .header {
+            background-color: #1a1d23;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        .chart-container {
+            background-color: #1a1d23;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+        }
+
+        .status-container {
+            background-color: #1a1d23;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            text-align: center;
+        }
+
+        .status-indicator {
+            width: 50px;
+            height: 50px;
+            border-radius: 50%;
+            margin: 20px auto;
+            transition: background-color 0.3s ease;
+        }
+
+        h1, h2 {
+            margin: 0;
+            padding: 10px 0;
+        }
+
+        h1 {
+            font-size: 2.5em;
+        }
+
+        h2 {
+            font-size: 1.5em;
+            color: #61dafb;
+        }
+    </style>
+  </head>
+  <body>
+    <div class="header">
+        <h1>EEG Data Visualization</h1>
+    </div>
+
+    <div class="container">
+        <div class="chart-container">
+            <h2>EEG Power Bands</h2>
+            <div id="barChart"></div>
+        </div>
+
+        <div class="chart-container">
+            <h2>EEG Power Over Time</h2>
+            <div id="lineChart"></div>
+        </div>
+
+        <div class="status-container">
+            <h2>Current State: <span id="emotionState">unknown</span></h2>
+            <div id="statusIndicator" class="status-indicator"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws = null;
+        let timeSeriesData = [];
+        const maxDataPoints = 50;
+
+        function connectWebSocket() {
+            ws = new WebSocket('ws://localhost:8000/ws/eeg_data');
+
+            ws.onopen = () => {
+                console.log('WebSocket Connected');
+            };
+
+            ws.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                updateVisualizations(data);
+            };
+
+            ws.onerror = (error) => {
+                console.error('WebSocket Error:', error);
+            };
+
+            ws.onclose = () => {
+                console.log('WebSocket Disconnected');
+                // Try to reconnect after 5 seconds
+                setTimeout(connectWebSocket, 5000);
+            };
+        }
+
+        function updateVisualizations(data) {
+            // Update emotion state
+            document.getElementById('emotionState').textContent = data.emotion;
+            document.getElementById('statusIndicator').style.backgroundColor = 
+                data.emotion === 'anxious' ? 'red' : 'green';
+
+            // Update bar chart
+            const barData = [{
+                x: Object.keys(data.features),
+                y: Object.values(data.features),
+                type: 'bar',
+                marker: {
+                    color: data.emotion === 'anxious' ? 'red' : 'green'
+                }
+            }];
+
+            Plotly.newPlot('barChart', barData, {
+                title: 'EEG Power Distribution',
+                xaxis: { title: 'Frequency Band' },
+                yaxis: { title: 'Power' }
+            });
+
+            // Update line chart
+            timeSeriesData.push({
+                timestamp: new Date(data.timestamp),
+                values: Object.values(data.features)
+            });
+
+            if (timeSeriesData.length > maxDataPoints) {
+                timeSeriesData.shift();
+            }
+
+            const lineData = [{
+                y: timeSeriesData.map(d => d.values[0]), // Using first feature for simplicity
+                type: 'scatter',
+                mode: 'lines+markers',
+                name: 'EEG Power'
+            }];
+
+            Plotly.newPlot('lineChart', lineData, {
+                title: 'EEG Power Time Series',
+                xaxis: { title: 'Time' },
+                yaxis: { title: 'Power' }
+            });
+        }
+
+        // Initialize WebSocket connection
+        connectWebSocket();
+    </script>
+  </body>
+</html> 

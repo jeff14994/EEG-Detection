@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EEG Data Visualization</title>
+    <script src="https://cdn.plot.ly/plotly-latest.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+    <div class="header">
+        <h1>EEG Data Visualization</h1>
+    </div>
+
+    <div class="container">
+        <div class="chart-container">
+            <h2>EEG Power Bands</h2>
+            <div id="barChart"></div>
+        </div>
+
+        <div class="chart-container">
+            <h2>EEG Power Over Time</h2>
+            <div id="lineChart"></div>
+        </div>
+
+        <div class="status-container">
+            <h2>Current State: <span id="emotionState">unknown</span></h2>
+            <div id="statusIndicator" class="status-indicator"></div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html> 
