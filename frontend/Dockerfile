@@ -1,18 +1,10 @@
-FROM node:18-alpine
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install
-
-COPY . .
-
-RUN npm run build
-
 FROM nginx:alpine
 
-COPY public/ /usr/share/nginx/html/
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# Copy all static files to Nginx's default web root
+COPY . /usr/share/nginx/html/
+
+# Copy custom Nginx configuration if you have one
+# COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80
 
