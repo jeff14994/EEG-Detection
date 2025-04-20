@@ -1,15 +1,29 @@
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse
-from datetime import datetime
-import time
-import random
-import json
+from fastapi.middleware.cors import CORSMiddleware
 import logging
 import os
-from fastapi.middleware.cors import CORSMiddleware
+import socketio
+import uvicorn
+import aiohttp
 import asyncio
+import json
+import random
+import time
 
+# Configure logging
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('simulator.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Create FastAPI app
 app = FastAPI()
 
 # Configure CORS
@@ -21,17 +35,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Configure logging
-logging.basicConfig(
-    level=logging.DEBUG,  # Changed to DEBUG for more detailed logs
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('simulator.log'),
-        logging.StreamHandler()
-    ]
-)
-logger = logging.getLogger(__name__)
-
 # Get the directory of the current file
 current_dir = os.path.dirname(os.path.abspath(__file__))
 # Get the parent directory (simulator)
@@ -40,83 +43,39 @@ parent_dir = os.path.dirname(current_dir)
 # Mount static files
 app.mount("/static", StaticFiles(directory=os.path.join(parent_dir, "static")), name="static")
 
+# Store active WebSocket connections
+active_connections = set()
+
+# Generate EEG data
 def generate_eeg_data():
-    """Generate simulated EEG data in the specified format"""
-    data = {}
-    for i in range(1, 20):
-        # Generate random values similar to the example data
-        value = random.uniform(-20, 20)
-        data[f"c{i}"] = round(value, 4)
-    logger.debug(f"Generated EEG data: {data}")
-    return data
+    return {
+        'timestamp': time.time(),
+        'data': {
+            'y_r': random.uniform(-10, 10),
+            'y_oc': random.uniform(-8, 8),
+            'o_r': random.uniform(-12, 12),
+            'o_oc': random.uniform(-6, 6)
+        }
+    }
 
 @app.websocket("/ws/eeg_data")
-async def eeg_data(websocket: WebSocket):
-    logger.info("New WebSocket connection request received")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    logger.info(f"WebSocket connection established: {websocket}")
+    active_connections.add(websocket)
+    
     try:
-        await websocket.accept()
-        logger.info("WebSocket connection established")
-        
-        # Create a task for sending data
-        async def send_data():
-            while True:
-                try:
-                    # Generate simulated EEG data
-                    eeg_data = generate_eeg_data()
-                    
-                    # Prepare response
-                    response = {
-                        "data": eeg_data,
-                        "timestamp": datetime.utcnow().isoformat()
-                    }
-                    
-                    logger.debug(f"Sending data: {response}")
-                    
-                    # Send data to frontend
-                    await websocket.send_json(response)
-                    
-                    # Update every second
-                    await asyncio.sleep(1)
-                    
-                except Exception as e:
-                    logger.error(f"Error in data generation/sending: {str(e)}", exc_info=True)
-                    break
-        
-        # Create a task for receiving data (ping/pong)
-        async def receive_data():
-            while True:
-                try:
-                    # Wait for any message (ping)
-                    await websocket.receive_text()
-                except WebSocketDisconnect:
-                    logger.info("Client disconnected")
-                    break
-                except Exception as e:
-                    logger.error(f"Error in receive: {str(e)}", exc_info=True)
-                    break
-        
-        # Run both tasks concurrently
-        send_task = asyncio.create_task(send_data())
-        receive_task = asyncio.create_task(receive_data())
-        
-        # Wait for either task to complete
-        done, pending = await asyncio.wait(
-            [send_task, receive_task],
-            return_when=asyncio.FIRST_COMPLETED
-        )
-        
-        # Cancel any pending tasks
-        for task in pending:
-            task.cancel()
-            
+        # Send data at 60Hz
+        while True:
+            data = generate_eeg_data()
+            await websocket.send_text(json.dumps(data))
+            await asyncio.sleep(1/60)  # 60Hz
+    except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected")
+        active_connections.remove(websocket)
     except Exception as e:
-        logger.error(f"Error in WebSocket connection: {str(e)}", exc_info=True)
-    finally:
-        try:
-            await websocket.close()
-            logger.info("WebSocket connection closed")
-        except:
-            pass
+        logger.error(f"WebSocket error: {e}")
+        active_connections.discard(websocket)
 
 @app.get("/")
 async def read_root():
@@ -124,7 +83,17 @@ async def read_root():
     logger.info("Serving main HTML file")
     return FileResponse(os.path.join(parent_dir, "test.html"))
 
-@app.get("/api/status")
-async def get_status():
-    """API endpoint to check server status"""
-    return {"status": "running", "timestamp": datetime.utcnow().isoformat()} 
+@app.get("/test")
+async def test_endpoint():
+    """Test endpoint to verify server is running"""
+    return {"status": "ok", "message": "Server is running"}
+
+if __name__ == "__main__":
+    uvicorn.run(
+        app,
+        host="0.0.0.0",
+        port=8000,
+        ws_ping_interval=5,
+        ws_ping_timeout=5,
+        log_level="debug"
+    ) 

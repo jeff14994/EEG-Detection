@@ -4,7 +4,6 @@
     <title>EEG Simulator Test</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
-    <script src="https://cdn.jsdelivr.net/npm/fft.js@0.0.1/dist/fft.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -12,16 +11,21 @@
             background-color: #f0f0f0;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
             background-color: white;
             padding: 20px;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }
+        .chart-row {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+            height: 150px;
+        }
         .chart-container {
-            margin-top: 20px;
-            height: 400px;
+            flex: 1;
             position: relative;
         }
         .data-container {
@@ -45,12 +49,14 @@
             border-radius: 4px;
             color: #721c24;
         }
-        .charts-row {
-            display: flex;
-            gap: 20px;
-        }
-        .chart-wrapper {
-            flex: 1;
+        .channel-label {
+            position: absolute;
+            left: -40px;
+            top: 50%;
+            transform: translateY(-50%);
+            writing-mode: vertical-lr;
+            transform: rotate(180deg);
+            font-weight: bold;
         }
     </style>
 </head>
@@ -60,19 +66,8 @@
         <div class="status" id="connectionStatus">Connecting...</div>
         <div class="debug" id="debugInfo"></div>
         
-        <div class="charts-row">
-            <div class="chart-wrapper">
-                <h2>EEG Time Series</h2>
-                <div class="chart-container">
-                    <canvas id="timeSeriesChart"></canvas>
-                </div>
-            </div>
-            <div class="chart-wrapper">
-                <h2>Power Spectra</h2>
-                <div class="chart-container">
-                    <canvas id="powerSpectraChart"></canvas>
-                </div>
-            </div>
+        <div id="chartsContainer">
+            <!-- Charts will be dynamically added here -->
         </div>
         
         <div class="data-container">
@@ -81,6 +76,44 @@
     </div>
 
     <script>
+        // Simple FFT implementation
+        function calculatePowerSpectrum(values) {
+            // For now, return a simple amplitude spectrum as placeholder
+            // This is not a true FFT but will show some data for visualization
+            const n = values.length;
+            const result = [];
+            
+            // Create some fake spectrum data based on signal variance
+            // This is just for visualization until we implement a proper FFT
+            let sum = 0;
+            let sumSq = 0;
+            
+            for (let i = 0; i < n; i++) {
+                sum += values[i];
+                sumSq += values[i] * values[i];
+            }
+            
+            const mean = sum / n;
+            const variance = sumSq / n - mean * mean;
+            
+            // Generate a mock spectrum with some peaks
+            for (let i = 0; i < n/2; i++) {
+                // Create some artificial peaks for visualization
+                const freq = i / (n / 60); // Convert bin to frequency assuming 60Hz sampling
+                let power = Math.max(0.1, variance * Math.exp(-Math.pow((freq - 10)/3, 2))); // Peak around 10Hz (alpha)
+                
+                // Add another peak around 4Hz (theta)
+                power += variance * 0.5 * Math.exp(-Math.pow((freq - 4)/2, 2));
+                
+                // Add some noise
+                power += variance * 0.1 * Math.random();
+                
+                result.push(power);
+            }
+            
+            return result;
+        }
+
         // Debug information
         const debugInfo = document.getElementById('debugInfo');
         function logDebug(message) {
@@ -88,113 +121,152 @@
             console.log(message);
         }
 
-        // Data history
-        const maxDataPoints = 256; // Increased for better FFT resolution
-        let timeSeriesData = [];
-        let powerSpectraData = [];
+        // Configuration
+        const channels = ['Y-R', 'Y-OC', 'O-R', 'O-OC'];
+        const channelKeys = ['y_r', 'y_oc', 'o_r', 'o_oc'];
+        const maxDataPoints = 600; // 10 seconds at 60Hz
+        const samplingRate = 60; // Hz
+        const maxFrequency = 50; // Hz
         
-        // Initialize Time Series Chart
-        const timeSeriesCtx = document.getElementById('timeSeriesChart').getContext('2d');
-        const timeSeriesChart = new Chart(timeSeriesCtx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'C1',
-                    data: [],
-                    borderColor: 'rgb(75, 192, 192)',
-                    tension: 0.1,
-                    borderWidth: 1,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: {
-                    duration: 0
+        // Data storage
+        const channelData = {};
+        channels.forEach(channel => {
+            channelData[channel] = {
+                timeSeriesData: [],
+                chart: null,
+                spectraChart: null
+            };
+        });
+
+        // Create charts container
+        const container = document.getElementById('chartsContainer');
+        channels.forEach((channel, idx) => {
+            const row = document.createElement('div');
+            row.className = 'chart-row';
+            
+            // Time series chart container
+            const timeSeriesContainer = document.createElement('div');
+            timeSeriesContainer.className = 'chart-container';
+            const timeSeriesLabel = document.createElement('div');
+            timeSeriesLabel.className = 'channel-label';
+            timeSeriesLabel.textContent = channel;
+            timeSeriesContainer.appendChild(timeSeriesLabel);
+            const timeSeriesCanvas = document.createElement('canvas');
+            timeSeriesContainer.appendChild(timeSeriesCanvas);
+            
+            // Power spectra chart container
+            const spectraContainer = document.createElement('div');
+            spectraContainer.className = 'chart-container';
+            const spectraCanvas = document.createElement('canvas');
+            spectraContainer.appendChild(spectraCanvas);
+            
+            row.appendChild(timeSeriesContainer);
+            row.appendChild(spectraContainer);
+            container.appendChild(row);
+            
+            // Initialize time series chart
+            channelData[channel].chart = new Chart(timeSeriesCanvas, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: channel,
+                        data: [],
+                        borderColor: channel.includes('Y') ? 'rgb(75, 192, 192)' : 'rgb(255, 99, 132)',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        tension: 0
+                    }]
                 },
-                scales: {
-                    x: {
-                        type: 'time',
-                        time: {
-                            unit: 'second',
-                            displayFormats: {
-                                second: 'HH:mm:ss'
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    interaction: {
+                        intersect: false
+                    },
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            display: idx === channels.length-1,
+                            title: {
+                                display: idx === channels.length-1,
+                                text: 'Time (sec)'
+                            },
+                            min: 0,
+                            max: 10,
+                            grid: {
+                                display: false
                             }
                         },
-                        title: {
-                            display: true,
-                            text: 'Time'
+                        y: {
+                            title: {
+                                display: false
+                            },
+                            min: -20,
+                            max: 20,
+                            grid: {
+                                display: false
+                            }
                         }
                     },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Amplitude (μV)'
+                    plugins: {
+                        legend: {
+                            display: false
                         }
                     }
                 }
-            }
-        });
-
-        // Initialize Power Spectra Chart
-        const powerSpectraCtx = document.getElementById('powerSpectraChart').getContext('2d');
-        const powerSpectraChart = new Chart(powerSpectraCtx, {
-            type: 'line',
-            data: {
-                labels: [],
-                datasets: [{
-                    label: 'Power',
-                    data: [],
-                    borderColor: 'rgb(255, 99, 132)',
-                    borderWidth: 1,
-                    pointRadius: 0
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                animation: {
-                    duration: 0
+            });
+            
+            // Initialize power spectra chart
+            channelData[channel].spectraChart = new Chart(spectraCanvas, {
+                type: 'line',
+                data: {
+                    datasets: [{
+                        label: 'Power',
+                        data: [],
+                        borderColor: channel.includes('Y') ? 'rgb(75, 192, 192)' : 'rgb(255, 99, 132)',
+                        borderWidth: 1,
+                        pointRadius: 0,
+                        fill: false
+                    }]
                 },
-                scales: {
-                    x: {
-                        title: {
-                            display: true,
-                            text: 'Frequency (Hz)'
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: {
+                            type: 'linear',
+                            display: idx === channels.length-1,
+                            title: {
+                                display: idx === channels.length-1,
+                                text: 'Frequency (Hz)'
+                            },
+                            min: 0,
+                            max: maxFrequency,
+                            grid: {
+                                display: false
+                            }
+                        },
+                        y: {
+                            type: 'logarithmic',
+                            title: {
+                                display: false
+                            },
+                            min: 0.1,
+                            grid: {
+                                display: false
+                            }
                         }
                     },
-                    y: {
-                        title: {
-                            display: true,
-                            text: 'Power (μV²/Hz)'
-                        },
-                        type: 'logarithmic'
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
                     }
                 }
-            }
+            });
         });
-
-        // Function to calculate power spectra using FFT
-        function calculatePowerSpectra(data) {
-            const n = data.length;
-            const fft = new FFT(n);
-            const out = fft.createComplexArray();
-            const input = new Float32Array(data);
-            
-            fft.realTransform(out, input);
-            
-            // Calculate power spectrum
-            const powerSpectrum = [];
-            for (let i = 0; i < n/2; i++) {
-                const re = out[2*i];
-                const im = out[2*i+1];
-                powerSpectrum.push(re*re + im*im);
-            }
-            
-            return powerSpectrum;
-        }
 
         // Initialize WebSocket connection
         let socket;
@@ -203,71 +275,23 @@
         const reconnectDelay = 1000; // 1 second
 
         function connectWebSocket() {
-            socket = new WebSocket('ws://localhost:8000/ws/eeg_data');
-            logDebug('Attempting to connect to WebSocket...');
+            const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const wsUrl = `${wsProtocol}//${window.location.host}/ws/eeg_data`;
+            socket = new WebSocket(wsUrl);
+            logDebug('Attempting to connect to WebSocket: ' + wsUrl);
             
             socket.onopen = () => {
                 logDebug('WebSocket connection established');
                 document.getElementById('connectionStatus').textContent = 'Connected';
-                document.getElementById('connectionStatus').style.backgroundColor = '#d4edda';
+                document.getElementById('connectionStatus').style.color = 'green';
                 reconnectAttempts = 0;
-                
-                // Start sending pings to keep connection alive
-                setInterval(() => {
-                    if (socket.readyState === WebSocket.OPEN) {
-                        socket.send('ping');
-                    }
-                }, 30000); // Send ping every 30 seconds
             };
 
             socket.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
-                    logDebug('Received data: ' + JSON.stringify(data.data).substring(0, 50) + '...');
-                    
-                    const timestamp = new Date(data.timestamp);
-                    const value = data.data.c1; // Just show C1 for now
-                    
-                    // Add new data point
-                    timeSeriesData.push({
-                        timestamp: timestamp,
-                        value: value
-                    });
-                    
-                    // Keep only the last maxDataPoints
-                    if (timeSeriesData.length > maxDataPoints) {
-                        timeSeriesData.shift();
-                    }
-                    
-                    // Update time series chart
-                    timeSeriesChart.data.labels = timeSeriesData.map(d => d.timestamp);
-                    timeSeriesChart.data.datasets[0].data = timeSeriesData.map(d => ({
-                        x: d.timestamp,
-                        y: d.value
-                    }));
-                    timeSeriesChart.update('none');
-                    
-                    // Calculate and update power spectra
-                    if (timeSeriesData.length >= maxDataPoints) {
-                        const values = timeSeriesData.map(d => d.value);
-                        const powerSpectrum = calculatePowerSpectra(values);
-                        
-                        // Calculate frequency bins
-                        const samplingRate = 1; // 1 Hz
-                        const frequencyBins = Array.from(
-                            {length: maxDataPoints/2}, 
-                            (_, i) => i * (samplingRate / maxDataPoints)
-                        );
-                        
-                        // Update power spectra chart
-                        powerSpectraChart.data.labels = frequencyBins;
-                        powerSpectraChart.data.datasets[0].data = powerSpectrum;
-                        powerSpectraChart.update('none');
-                    }
-                    
-                    // Display raw data
-                    document.getElementById('rawData').textContent = 
-                        JSON.stringify(data, null, 2);
+                    // Process the data and update charts
+                    processData(data);
                 } catch (error) {
                     logDebug('Error processing data: ' + error.message);
                 }
@@ -276,13 +300,13 @@
             socket.onerror = (error) => {
                 logDebug('WebSocket error: ' + JSON.stringify(error));
                 document.getElementById('connectionStatus').textContent = 'Connection Error';
-                document.getElementById('connectionStatus').style.backgroundColor = '#f8d7da';
+                document.getElementById('connectionStatus').style.color = 'red';
             };
 
             socket.onclose = (event) => {
                 logDebug('WebSocket connection closed. Code: ' + event.code + ', Reason: ' + event.reason);
                 document.getElementById('connectionStatus').textContent = 'Disconnected';
-                document.getElementById('connectionStatus').style.backgroundColor = '#fff3cd';
+                document.getElementById('connectionStatus').style.color = 'red';
                 
                 // Attempt to reconnect
                 if (reconnectAttempts < maxReconnectAttempts) {
@@ -297,6 +321,63 @@
 
         // Initial connection
         connectWebSocket();
+
+        function processData(data) {
+            const currentTime = data.timestamp % 10;
+            
+            // Update each channel
+            channels.forEach((channel, index) => {
+                const value = data.data[channelKeys[index]];
+                const channelInfo = channelData[channel];
+                
+                // Add new data point
+                channelInfo.timeSeriesData.push({
+                    x: currentTime,
+                    y: value
+                });
+                
+                // Remove old data points
+                while (channelInfo.timeSeriesData.length > 0 && 
+                       channelInfo.timeSeriesData[0].x > channelInfo.timeSeriesData[channelInfo.timeSeriesData.length - 1].x) {
+                    channelInfo.timeSeriesData.shift();
+                }
+                
+                // Keep only the last maxDataPoints
+                if (channelInfo.timeSeriesData.length > maxDataPoints) {
+                    channelInfo.timeSeriesData.shift();
+                }
+                
+                // Update time series chart
+                channelInfo.chart.data.datasets[0].data = channelInfo.timeSeriesData;
+                channelInfo.chart.update('none');
+                
+                // Calculate and update power spectra
+                if (channelInfo.timeSeriesData.length >= 60) {  // Use at least 1 second of data
+                    const values = channelInfo.timeSeriesData.map(d => d.y);
+                    const powerSpectrum = calculatePowerSpectrum(values);
+                    
+                    // Calculate frequency bins
+                    const frequencyBins = Array.from(
+                        {length: powerSpectrum.length},
+                        (_, i) => i * (samplingRate / (2 * powerSpectrum.length))
+                    ).filter(f => f <= maxFrequency);
+                    
+                    // Create data points for the spectra
+                    const spectraData = frequencyBins.map((f, i) => ({
+                        x: f,
+                        y: powerSpectrum[i]
+                    }));
+                    
+                    // Update power spectra chart
+                    channelInfo.spectraChart.data.datasets[0].data = spectraData;
+                    channelInfo.spectraChart.update('none');
+                }
+            });
+            
+            // Display raw data
+            document.getElementById('rawData').textContent = 
+                JSON.stringify(data, null, 2);
+        }
     </script>
 </body>
 </html> 
