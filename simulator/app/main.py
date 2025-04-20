@@ -51,10 +51,10 @@ def generate_eeg_data():
     return {
         'timestamp': time.time(),
         'data': {
-            'y_r': random.uniform(-10, 10),
-            'y_oc': random.uniform(-8, 8),
-            'o_r': random.uniform(-12, 12),
-            'o_oc': random.uniform(-6, 6)
+            'O1': random.uniform(-10, 10),
+            'O2': random.uniform(-8, 8),
+            'T3': random.uniform(-12, 12),
+            'T4': random.uniform(-6, 6)
         }
     }
 

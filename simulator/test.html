@@ -122,8 +122,8 @@
         }
 
         // Configuration
-        const channels = ['Y-R', 'Y-OC', 'O-R', 'O-OC'];
-        const channelKeys = ['y_r', 'y_oc', 'o_r', 'o_oc'];
+        const channels = ['O1', 'O2', 'T3', 'T4'];
+        const channelKeys = ['O1', 'O2', 'T3', 'T4'];
         const maxDataPoints = 600; // 10 seconds at 60Hz
         const samplingRate = 60; // Hz
         const maxFrequency = 50; // Hz
@@ -171,7 +171,7 @@
                     datasets: [{
                         label: channel,
                         data: [],
-                        borderColor: channel.includes('Y') ? 'rgb(75, 192, 192)' : 'rgb(255, 99, 132)',
+                        borderColor: channel.startsWith('O') ? 'rgb(75, 192, 192)' : 'rgb(255, 99, 132)',
                         borderWidth: 1,
                         pointRadius: 0,
                         tension: 0
@@ -224,7 +224,7 @@
                     datasets: [{
                         label: 'Power',
                         data: [],
-                        borderColor: channel.includes('Y') ? 'rgb(75, 192, 192)' : 'rgb(255, 99, 132)',
+                        borderColor: channel.startsWith('O') ? 'rgb(75, 192, 192)' : 'rgb(255, 99, 132)',
                         borderWidth: 1,
                         pointRadius: 0,
                         fill: false
