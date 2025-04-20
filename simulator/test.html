@@ -142,6 +142,11 @@
             debugInfo.textContent = lines.join('\n');
             console.log(message);
         }
+        
+        // Console-only logging (doesn't appear in the debug box)
+        function logConsoleOnly(message) {
+            console.log(message);
+        }
 
         // Configuration
         const channels = ['O1', 'O2', 'T3', 'T4'];
@@ -394,8 +399,8 @@
                 });
             
             if (shouldReset) {
-                logDebug('Resetting charts for new 10-second cycle');
-                // Clear all time series data
+                // Log to console only, not to the debug box
+                logConsoleOnly('Resetting charts for new 10-second cycle');
                 channels.forEach(channel => {
                     channelData[channel].timeSeriesData = [];
                 });
