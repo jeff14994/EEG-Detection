@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>EEG Simulator Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns"></script>
+    <script src="https://cdn.jsdelivr.net/npm/fft.js@0.0.1/dist/fft.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-container {
+            margin-top: 20px;
+            height: 400px;
+            position: relative;
+        }
+        .data-container {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .status {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #e9ecef;
+            border-radius: 4px;
+        }
+        .debug {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #f8d7da;
+            border-radius: 4px;
+            color: #721c24;
+        }
+        .charts-row {
+            display: flex;
+            gap: 20px;
+        }
+        .chart-wrapper {
+            flex: 1;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>EEG Simulator Test</h1>
+        <div class="status" id="connectionStatus">Connecting...</div>
+        <div class="debug" id="debugInfo"></div>
+        
+        <div class="charts-row">
+            <div class="chart-wrapper">
+                <h2>EEG Time Series</h2>
+                <div class="chart-container">
+                    <canvas id="timeSeriesChart"></canvas>
+                </div>
+            </div>
+            <div class="chart-wrapper">
+                <h2>Power Spectra</h2>
+                <div class="chart-container">
+                    <canvas id="powerSpectraChart"></canvas>
+                </div>
+            </div>
+        </div>
+        
+        <div class="data-container">
+            <pre id="rawData"></pre>
+        </div>
+    </div>
+
+    <script>
+        // Debug information
+        const debugInfo = document.getElementById('debugInfo');
+        function logDebug(message) {
+            debugInfo.textContent += message + '\n';
+            console.log(message);
+        }
+
+        // Data history
+        const maxDataPoints = 256; // Increased for better FFT resolution
+        let timeSeriesData = [];
+        let powerSpectraData = [];
+        
+        // Initialize Time Series Chart
+        const timeSeriesCtx = document.getElementById('timeSeriesChart').getContext('2d');
+        const timeSeriesChart = new Chart(timeSeriesCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'C1',
+                    data: [],
+                    borderColor: 'rgb(75, 192, 192)',
+                    tension: 0.1,
+                    borderWidth: 1,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0
+                },
+                scales: {
+                    x: {
+                        type: 'time',
+                        time: {
+                            unit: 'second',
+                            displayFormats: {
+                                second: 'HH:mm:ss'
+                            }
+                        },
+                        title: {
+                            display: true,
+                            text: 'Time'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Amplitude (μV)'
+                        }
+                    }
+                }
+            }
+        });
+
+        // Initialize Power Spectra Chart
+        const powerSpectraCtx = document.getElementById('powerSpectraChart').getContext('2d');
+        const powerSpectraChart = new Chart(powerSpectraCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [{
+                    label: 'Power',
+                    data: [],
+                    borderColor: 'rgb(255, 99, 132)',
+                    borderWidth: 1,
+                    pointRadius: 0
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                animation: {
+                    duration: 0
+                },
+                scales: {
+                    x: {
+                        title: {
+                            display: true,
+                            text: 'Frequency (Hz)'
+                        }
+                    },
+                    y: {
+                        title: {
+                            display: true,
+                            text: 'Power (μV²/Hz)'
+                        },
+                        type: 'logarithmic'
+                    }
+                }
+            }
+        });
+
+        // Function to calculate power spectra using FFT
+        function calculatePowerSpectra(data) {
+            const n = data.length;
+            const fft = new FFT(n);
+            const out = fft.createComplexArray();
+            const input = new Float32Array(data);
+            
+            fft.realTransform(out, input);
+            
+            // Calculate power spectrum
+            const powerSpectrum = [];
+            for (let i = 0; i < n/2; i++) {
+                const re = out[2*i];
+                const im = out[2*i+1];
+                powerSpectrum.push(re*re + im*im);
+            }
+            
+            return powerSpectrum;
+        }
+
+        // Initialize WebSocket connection
+        let socket;
+        let reconnectAttempts = 0;
+        const maxReconnectAttempts = 5;
+        const reconnectDelay = 1000; // 1 second
+
+        function connectWebSocket() {
+            socket = new WebSocket('ws://localhost:8000/ws/eeg_data');
+            logDebug('Attempting to connect to WebSocket...');
+            
+            socket.onopen = () => {
+                logDebug('WebSocket connection established');
+                document.getElementById('connectionStatus').textContent = 'Connected';
+                document.getElementById('connectionStatus').style.backgroundColor = '#d4edda';
+                reconnectAttempts = 0;
+                
+                // Start sending pings to keep connection alive
+                setInterval(() => {
+                    if (socket.readyState === WebSocket.OPEN) {
+                        socket.send('ping');
+                    }
+                }, 30000); // Send ping every 30 seconds
+            };
+
+            socket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    logDebug('Received data: ' + JSON.stringify(data.data).substring(0, 50) + '...');
+                    
+                    const timestamp = new Date(data.timestamp);
+                    const value = data.data.c1; // Just show C1 for now
+                    
+                    // Add new data point
+                    timeSeriesData.push({
+                        timestamp: timestamp,
+                        value: value
+                    });
+                    
+                    // Keep only the last maxDataPoints
+                    if (timeSeriesData.length > maxDataPoints) {
+                        timeSeriesData.shift();
+                    }
+                    
+                    // Update time series chart
+                    timeSeriesChart.data.labels = timeSeriesData.map(d => d.timestamp);
+                    timeSeriesChart.data.datasets[0].data = timeSeriesData.map(d => ({
+                        x: d.timestamp,
+                        y: d.value
+                    }));
+                    timeSeriesChart.update('none');
+                    
+                    // Calculate and update power spectra
+                    if (timeSeriesData.length >= maxDataPoints) {
+                        const values = timeSeriesData.map(d => d.value);
+                        const powerSpectrum = calculatePowerSpectra(values);
+                        
+                        // Calculate frequency bins
+                        const samplingRate = 1; // 1 Hz
+                        const frequencyBins = Array.from(
+                            {length: maxDataPoints/2}, 
+                            (_, i) => i * (samplingRate / maxDataPoints)
+                        );
+                        
+                        // Update power spectra chart
+                        powerSpectraChart.data.labels = frequencyBins;
+                        powerSpectraChart.data.datasets[0].data = powerSpectrum;
+                        powerSpectraChart.update('none');
+                    }
+                    
+                    // Display raw data
+                    document.getElementById('rawData').textContent = 
+                        JSON.stringify(data, null, 2);
+                } catch (error) {
+                    logDebug('Error processing data: ' + error.message);
+                }
+            };
+
+            socket.onerror = (error) => {
+                logDebug('WebSocket error: ' + JSON.stringify(error));
+                document.getElementById('connectionStatus').textContent = 'Connection Error';
+                document.getElementById('connectionStatus').style.backgroundColor = '#f8d7da';
+            };
+
+            socket.onclose = (event) => {
+                logDebug('WebSocket connection closed. Code: ' + event.code + ', Reason: ' + event.reason);
+                document.getElementById('connectionStatus').textContent = 'Disconnected';
+                document.getElementById('connectionStatus').style.backgroundColor = '#fff3cd';
+                
+                // Attempt to reconnect
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    logDebug(`Attempting to reconnect (${reconnectAttempts}/${maxReconnectAttempts})...`);
+                    setTimeout(connectWebSocket, reconnectDelay);
+                } else {
+                    logDebug('Max reconnection attempts reached. Please refresh the page.');
+                }
+            };
+        }
+
+        // Initial connection
+        connectWebSocket();
+    </script>
+</body>
+</html> 
