@@ -84,45 +84,50 @@
     </div>
 
     <script>
-        // Simple FFT implementation
-        function calculatePowerSpectrum(values) {
-            // For now, return a simple amplitude spectrum as placeholder
-            // This is not a true FFT but will show some data for visualization
-            const n = values.length;
-            const result = [];
+        // Simple but accurate DFT implementation
+        function calculateDFT(signal) {
+            const N = signal.length;
+            const result = { real: [], imag: [] };
             
-            // Create some fake spectrum data based on signal variance
-            // This is just for visualization until we implement a proper FFT
-            let sum = 0;
-            let sumSq = 0;
-            
-            for (let i = 0; i < n; i++) {
-                sum += values[i];
-                sumSq += values[i] * values[i];
-            }
-            
-            const mean = sum / n;
-            const variance = sumSq / n - mean * mean;
-            
-            // Generate a mock spectrum with some peaks
-            for (let i = 0; i < n/2; i++) {
-                // Create some artificial peaks for visualization
-                const freq = i / (n / 250); // Convert bin to frequency assuming 250Hz sampling
-                let power = Math.max(0.1, variance * Math.exp(-Math.pow((freq - 10)/3, 2))); // Peak around 10Hz (alpha)
+            // For each frequency bin
+            for (let k = 0; k < N; k++) {
+                let sumReal = 0;
+                let sumImag = 0;
                 
-                // Add another peak around 4Hz (theta)
-                power += variance * 0.5 * Math.exp(-Math.pow((freq - 4)/2, 2));
+                // Calculate DFT
+                for (let n = 0; n < N; n++) {
+                    const phi = (2 * Math.PI * k * n) / N;
+                    sumReal += signal[n] * Math.cos(phi);
+                    sumImag -= signal[n] * Math.sin(phi);
+                }
                 
-                // Add another peak around 20Hz (beta)
-                power += variance * 0.3 * Math.exp(-Math.pow((freq - 20)/5, 2));
-                
-                // Add some noise
-                power += variance * 0.1 * Math.random();
-                
-                result.push(power);
+                result.real.push(sumReal);
+                result.imag.push(sumImag);
             }
             
             return result;
+        }
+        
+        // Calculate power spectrum from DFT
+        function calculatePowerSpectrum(values) {
+            // Apply a Hanning window to reduce spectral leakage
+            const windowed = values.map((v, i) => {
+                const window = 0.5 * (1 - Math.cos(2 * Math.PI * i / (values.length - 1)));
+                return v * window;
+            });
+            
+            // Perform DFT
+            const dft = calculateDFT(windowed);
+            
+            // Calculate power spectrum (magnitude squared)
+            const powerSpectrum = [];
+            for (let i = 0; i < dft.real.length / 2; i++) {
+                const re = dft.real[i];
+                const im = dft.imag[i];
+                powerSpectrum.push((re * re + im * im) / values.length);
+            }
+            
+            return powerSpectrum;
         }
 
         // Debug information
@@ -285,11 +290,11 @@
                             }
                         },
                         y: {
-                            type: 'logarithmic',
+                            type: 'linear',  // Changed from logarithmic for better visibility
                             title: {
                                 display: false
                             },
-                            min: 0.1,
+                            min: 0,
                             grid: {
                                 display: false
                             }
@@ -374,6 +379,9 @@
                 }
             });
         }, 33); // ~30fps
+        
+        // Window size for FFT (power of 2 for efficiency)
+        const fftWindowSize = 512;
 
         function processData(data) {
             const currentTime = data.timestamp % displaySeconds;
@@ -422,24 +430,32 @@
                 channelInfo.chart.data.datasets[0].data = channelInfo.timeSeriesData;
                 
                 // Calculate and update power spectra every 1/4 second (to reduce CPU usage)
-                if (dataCounter % 60 === 0 && channelInfo.timeSeriesData.length >= 250) {  // Use at least 1 second of data
-                    const values = channelInfo.timeSeriesData.map(d => d.y);
-                    const powerSpectrum = calculatePowerSpectrum(values);
-                    
-                    // Calculate frequency bins
-                    const frequencyBins = Array.from(
-                        {length: powerSpectrum.length},
-                        (_, i) => i * (samplingRate / (2 * powerSpectrum.length))
-                    ).filter(f => f <= maxFrequency);
-                    
-                    // Create data points for the spectra
-                    const spectraData = frequencyBins.map((f, i) => ({
-                        x: f,
-                        y: powerSpectrum[i]
-                    }));
-                    
-                    // Update power spectra chart data
-                    channelInfo.spectraChart.data.datasets[0].data = spectraData;
+                if (dataCounter % 60 === 0 && channelInfo.timeSeriesData.length >= fftWindowSize) {
+                    try {
+                        // Extract last N values for FFT
+                        const windowedValues = channelInfo.timeSeriesData.slice(-fftWindowSize).map(d => d.y);
+                        
+                        // Calculate power spectrum
+                        const powerSpectrum = calculatePowerSpectrum(windowedValues);
+                        
+                        // Calculate frequency bins
+                        const freqResolution = samplingRate / fftWindowSize;
+                        const frequencyBins = Array.from(
+                            {length: powerSpectrum.length},
+                            (_, i) => i * freqResolution
+                        ).filter(f => f <= maxFrequency);
+                        
+                        // Create data points for the spectra
+                        const spectraData = frequencyBins.map((f, i) => ({
+                            x: f,
+                            y: powerSpectrum[i]
+                        }));
+                        
+                        // Update power spectra chart data
+                        channelInfo.spectraChart.data.datasets[0].data = spectraData;
+                    } catch (err) {
+                        console.error("Error updating spectra:", err);
+                    }
                 }
             });
             
