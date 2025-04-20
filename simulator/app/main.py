@@ -11,6 +11,7 @@ import asyncio
 import json
 import random
 import time
+import math
 
 # Configure logging
 logging.basicConfig(
@@ -46,15 +47,30 @@ app.mount("/static", StaticFiles(directory=os.path.join(parent_dir, "static")), 
 # Store active WebSocket connections
 active_connections = set()
 
-# Generate EEG data
+# Sampling rate
+SAMPLING_RATE = 250  # Hz
+
+# Generate more realistic EEG data with frequencies
 def generate_eeg_data():
+    t = time.time()
+    
+    # Generate signals with different frequency components for each channel
+    # Alpha (8-13 Hz), Beta (13-30 Hz), Theta (4-8 Hz), Delta (0.5-4 Hz)
+    alpha = 5 * math.sin(2 * math.pi * 10 * t)  # 10 Hz alpha
+    beta = 2 * math.sin(2 * math.pi * 20 * t)   # 20 Hz beta
+    theta = 4 * math.sin(2 * math.pi * 6 * t)   # 6 Hz theta
+    delta = 3 * math.sin(2 * math.pi * 2 * t)   # 2 Hz delta
+    
+    # Add some random noise
+    noise = random.uniform(-1, 1)
+    
     return {
-        'timestamp': time.time(),
+        'timestamp': t,
         'data': {
-            'O1': random.uniform(-10, 10),
-            'O2': random.uniform(-8, 8),
-            'T3': random.uniform(-12, 12),
-            'T4': random.uniform(-6, 6)
+            'O1': alpha + theta + noise,
+            'O2': alpha + beta + noise,
+            'T3': theta + delta + noise,
+            'T4': beta + delta + noise
         }
     }
 
@@ -65,11 +81,11 @@ async def websocket_endpoint(websocket: WebSocket):
     active_connections.add(websocket)
     
     try:
-        # Send data at 60Hz
+        # Send data at 250Hz
         while True:
             data = generate_eeg_data()
             await websocket.send_text(json.dumps(data))
-            await asyncio.sleep(1/60)  # 60Hz
+            await asyncio.sleep(1/SAMPLING_RATE)  # 250Hz
     except WebSocketDisconnect:
         logger.info(f"WebSocket disconnected")
         active_connections.remove(websocket)

@@ -58,12 +58,20 @@
             transform: rotate(180deg);
             font-weight: bold;
         }
+        .stats {
+            margin-top: 10px;
+            padding: 10px;
+            background-color: #d1ecf1;
+            border-radius: 4px;
+            color: #0c5460;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <h1>EEG Simulator Test</h1>
         <div class="status" id="connectionStatus">Connecting...</div>
+        <div class="stats" id="dataStats">Data stats will appear here...</div>
         <div class="debug" id="debugInfo"></div>
         
         <div id="chartsContainer">
@@ -99,11 +107,14 @@
             // Generate a mock spectrum with some peaks
             for (let i = 0; i < n/2; i++) {
                 // Create some artificial peaks for visualization
-                const freq = i / (n / 60); // Convert bin to frequency assuming 60Hz sampling
+                const freq = i / (n / 250); // Convert bin to frequency assuming 250Hz sampling
                 let power = Math.max(0.1, variance * Math.exp(-Math.pow((freq - 10)/3, 2))); // Peak around 10Hz (alpha)
                 
                 // Add another peak around 4Hz (theta)
                 power += variance * 0.5 * Math.exp(-Math.pow((freq - 4)/2, 2));
+                
+                // Add another peak around 20Hz (beta)
+                power += variance * 0.3 * Math.exp(-Math.pow((freq - 20)/5, 2));
                 
                 // Add some noise
                 power += variance * 0.1 * Math.random();
@@ -117,16 +128,41 @@
         // Debug information
         const debugInfo = document.getElementById('debugInfo');
         function logDebug(message) {
-            debugInfo.textContent += message + '\n';
+            const maxLines = 10;
+            const lines = debugInfo.textContent.split('\n');
+            if (lines.length > maxLines) {
+                lines.shift();
+            }
+            lines.push(message);
+            debugInfo.textContent = lines.join('\n');
             console.log(message);
         }
 
         // Configuration
         const channels = ['O1', 'O2', 'T3', 'T4'];
         const channelKeys = ['O1', 'O2', 'T3', 'T4'];
-        const maxDataPoints = 600; // 10 seconds at 60Hz
-        const samplingRate = 60; // Hz
-        const maxFrequency = 50; // Hz
+        const maxDataPoints = 2500; // 10 seconds at 250Hz
+        const samplingRate = 250; // Hz
+        const maxFrequency = 125; // Hz (Nyquist frequency)
+        const displaySeconds = 10; // Display 10 seconds of data
+        
+        // Stats for data rate monitoring
+        let dataCounter = 0;
+        let lastTimestamp = Date.now();
+        let actualSamplingRate = 0;
+        
+        // Update stats every second
+        setInterval(() => {
+            const now = Date.now();
+            const elapsed = (now - lastTimestamp) / 1000;
+            actualSamplingRate = dataCounter / elapsed;
+            
+            document.getElementById('dataStats').textContent = 
+                `Receiving data at ${actualSamplingRate.toFixed(1)} Hz - Target: ${samplingRate} Hz`;
+            
+            dataCounter = 0;
+            lastTimestamp = now;
+        }, 1000);
         
         // Data storage
         const channelData = {};
@@ -193,7 +229,7 @@
                                 text: 'Time (sec)'
                             },
                             min: 0,
-                            max: 10,
+                            max: displaySeconds,
                             grid: {
                                 display: false
                             }
@@ -290,6 +326,8 @@
             socket.onmessage = (event) => {
                 try {
                     const data = JSON.parse(event.data);
+                    // Count received data points
+                    dataCounter++;
                     // Process the data and update charts
                     processData(data);
                 } catch (error) {
@@ -322,8 +360,38 @@
         // Initial connection
         connectWebSocket();
 
+        // Optimize chart updates by reducing update frequency
+        let pendingUpdates = {};
+        channels.forEach(channel => pendingUpdates[channel] = false);
+        
+        // Update charts at 30 fps max to reduce CPU usage
+        setInterval(() => {
+            channels.forEach(channel => {
+                if (pendingUpdates[channel]) {
+                    channelData[channel].chart.update('none');
+                    channelData[channel].spectraChart.update('none');
+                    pendingUpdates[channel] = false;
+                }
+            });
+        }, 33); // ~30fps
+
         function processData(data) {
-            const currentTime = data.timestamp % 10;
+            const currentTime = data.timestamp % displaySeconds;
+            
+            // Check if we've wrapped around to a new cycle (currentTime close to 0)
+            const shouldReset = currentTime < 0.1 && 
+                channels.some(c => {
+                    const lastPoint = channelData[c].timeSeriesData[channelData[c].timeSeriesData.length - 1];
+                    return lastPoint && lastPoint.x > 9.5; // Last point was near the end of the window
+                });
+            
+            if (shouldReset) {
+                logDebug('Resetting charts for new 10-second cycle');
+                // Clear all time series data
+                channels.forEach(channel => {
+                    channelData[channel].timeSeriesData = [];
+                });
+            }
             
             // Update each channel
             channels.forEach((channel, index) => {
@@ -336,23 +404,25 @@
                     y: value
                 });
                 
-                // Remove old data points
-                while (channelInfo.timeSeriesData.length > 0 && 
-                       channelInfo.timeSeriesData[0].x > channelInfo.timeSeriesData[channelInfo.timeSeriesData.length - 1].x) {
-                    channelInfo.timeSeriesData.shift();
-                }
+                // Keep only points in the current 10-second window
+                channelInfo.timeSeriesData = channelInfo.timeSeriesData.filter(
+                    point => point.x <= currentTime || (currentTime < 1 && point.x > 9)
+                );
                 
                 // Keep only the last maxDataPoints
                 if (channelInfo.timeSeriesData.length > maxDataPoints) {
-                    channelInfo.timeSeriesData.shift();
+                    const numToDrop = channelInfo.timeSeriesData.length - maxDataPoints;
+                    channelInfo.timeSeriesData.splice(0, numToDrop);
                 }
                 
-                // Update time series chart
-                channelInfo.chart.data.datasets[0].data = channelInfo.timeSeriesData;
-                channelInfo.chart.update('none');
+                // Mark for chart update
+                pendingUpdates[channel] = true;
                 
-                // Calculate and update power spectra
-                if (channelInfo.timeSeriesData.length >= 60) {  // Use at least 1 second of data
+                // Don't update the chart here - it will be updated in the interval
+                channelInfo.chart.data.datasets[0].data = channelInfo.timeSeriesData;
+                
+                // Calculate and update power spectra every 1/4 second (to reduce CPU usage)
+                if (dataCounter % 60 === 0 && channelInfo.timeSeriesData.length >= 250) {  // Use at least 1 second of data
                     const values = channelInfo.timeSeriesData.map(d => d.y);
                     const powerSpectrum = calculatePowerSpectrum(values);
                     
@@ -368,15 +438,16 @@
                         y: powerSpectrum[i]
                     }));
                     
-                    // Update power spectra chart
+                    // Update power spectra chart data
                     channelInfo.spectraChart.data.datasets[0].data = spectraData;
-                    channelInfo.spectraChart.update('none');
                 }
             });
             
-            // Display raw data
-            document.getElementById('rawData').textContent = 
-                JSON.stringify(data, null, 2);
+            // Display raw data only occasionally to reduce DOM updates
+            if (dataCounter % 25 === 0) {
+                document.getElementById('rawData').textContent = 
+                    JSON.stringify(data, null, 2);
+            }
         }
     </script>
 </body>
