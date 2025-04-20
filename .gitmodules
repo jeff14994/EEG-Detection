@@ -1,0 +1,3 @@
+[submodule "neurosamples"]
+	path = neurosamples
+	url = https://gitlab.com/neurosdk2/neurosamples.git
