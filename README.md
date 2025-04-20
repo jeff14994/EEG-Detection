@@ -11,29 +11,6 @@ A real-time EEG data analysis and visualization system that processes brainwave 
 - WebSocket-based real-time updates
 - Docker containerization for easy deployment
 
-## System Architecture
-
-The system consists of two main components:
-
-### Backend (FastAPI)
-- EEG data extraction and preprocessing
-- Feature extraction (Delta, Theta, Alpha, Beta power bands)
-- Classification of emotional states
-- WebSocket server for real-time data streaming
-
-### Frontend (HTML/CSS/JavaScript)
-- Real-time data visualization using Plotly.js
-- Interactive bar charts for power band distribution
-- Time-series line charts
-- Visual status indicators
-- Automatic WebSocket reconnection
-
-## Prerequisites
-
-- Docker and Docker Compose
-- Python 3.9+ (for local development)
-- Brainbit Headband and SDK (for actual EEG data)
-
 ## System Design
 
 ```mermaid
@@ -98,6 +75,30 @@ flowchart TB
 
 
 ```
+
+## System Architecture
+
+The system consists of two main components:
+
+### Backend (FastAPI)
+- EEG data extraction and preprocessing
+- Feature extraction (Delta, Theta, Alpha, Beta power bands)
+- Classification of emotional states
+- WebSocket server for real-time data streaming
+
+### Frontend (HTML/CSS/JavaScript)
+- Real-time data visualization using Plotly.js
+- Interactive bar charts for power band distribution
+- Time-series line charts
+- Visual status indicators
+- Automatic WebSocket reconnection
+
+## Prerequisites
+
+- Docker and Docker Compose
+- Python 3.9+ (for local development)
+- Brainbit Headband and SDK (for actual EEG data)
+
 
 ## Installation
 
