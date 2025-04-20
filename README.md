@@ -34,6 +34,71 @@ The system consists of two main components:
 - Python 3.9+ (for local development)
 - Brainbit Headband and SDK (for actual EEG data)
 
+## System Design
+
+```mermaid
+flowchart TB
+
+    %% Orchestration Layer
+    subgraph "Docker Compose"
+        direction TB
+        class DockerCompose orch
+
+        %% Backend Service Container
+        subgraph "Backend Service (FastAPI)"
+            direction TB
+            Ingest["Data Ingestion Module"]:::compute
+            Preprocess["Preprocessing Module"]:::compute
+            Classify["Feature Extraction & Classification Module"]:::compute
+            WS["WebSocket Server"]:::compute
+        end
+
+        %% Frontend Service Container
+        subgraph "Frontend Service (Nginx + Static)"
+            direction TB
+            Nginx["Nginx (Static File Server)"]:::presentation
+            WSClient["WebSocket Client (app.js)"]:::presentation
+            Plotly["Plotly.js Visualizer"]:::presentation
+        end
+
+        %% Simulator Service Container
+        subgraph "Simulator Service (Optional)"
+            direction TB
+            SimApp["Simulator App"]:::data
+        end
+    end
+
+    %% External Data Source
+    Brainbit["Brainbit Headband"]:::data
+
+    %% Data Flows
+    Brainbit -->|"Bluetooth"| Ingest
+    SimApp -->|"Simulated EEG"| Ingest
+    Ingest -->|"raw EEG"| Preprocess
+    Preprocess -->|"preprocessed data"| Classify
+    Classify -->|"classified features"| WS
+    WS -->|"WebSocket"| WSClient
+    WSClient -->|"update"| Plotly
+
+    %% Click Events
+    click Ingest "backend/app/eeg_data.py"
+    click Preprocess "backend/app/preprocess.py"
+    click Classify "backend/app/classify.py"
+    click WS "backend/app/main.py"
+    click Nginx "frontend/nginx.conf"
+    click WSClient "frontend/public/app.js"
+    click SimApp "simulator/app/main.py"
+    click Brainbit "README.md"
+
+    %% Styles
+    classDef data fill:#ADD8E6,stroke:#000,color:#000
+    classDef compute fill:#90EE90,stroke:#000,color:#000
+    classDef presentation fill:#FFA500,stroke:#000,color:#000
+    classDef orch fill:#f0f0f0,stroke:#999,stroke-width:2px,color:#000
+
+
+```
+
 ## Installation
 
 1. Clone the repository:
